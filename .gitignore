@@ -1,0 +1,6 @@
+.ipynb_checkpoints
+.vscode
+*.pyc
+*.tar
+*.out
+__pycache__
