@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torchvision
 from torchsummary import summary
+from torch.nn.utils.weight_norm import weight_norm
 
 device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
 
@@ -87,20 +88,18 @@ class Attention(nn.Module):
     Attention Network.
     """
 
-    def __init__(self, encoder_dim, decoder_dim, attention_dim):
+    def __init__(self, encoder_dim, decoder_dim, attention_dim, dropout=0.5):
         """
         :param encoder_dim: feature size of encoded images
         :param decoder_dim: size of decoder's RNN
         :param attention_dim: size of the attention network
         """
         super(Attention, self).__init__()
-        # linear layer to transform encoded image
-        self.encoder_att = nn.Linear(encoder_dim, attention_dim)
-        # linear layer to transform decoder's output
-        self.decoder_att = nn.Linear(decoder_dim, attention_dim)
-        # linear layer to calculate values to be softmax-ed
-        self.full_att = nn.Linear(attention_dim, 1)
+        self.features_att = weight_norm(nn.Linear(encoder_dim, attention_dim))  # linear layer to transform encoded image
+        self.decoder_att = weight_norm(nn.Linear(decoder_dim, attention_dim))  # linear layer to transform decoder's output
+        self.full_att = weight_norm(nn.Linear(attention_dim, 1))  # linear layer to calculate values to be softmax-ed
         self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(p=dropout)
         self.softmax = nn.Softmax(dim=1)  # softmax layer to calculate weights
 
     def forward(self, encoder_out, decoder_hidden):
