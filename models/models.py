@@ -95,7 +95,7 @@ class Attention(nn.Module):
         :param attention_dim: size of the attention network
         """
         super(Attention, self).__init__()
-        self.features_att = weight_norm(nn.Linear(encoder_dim, attention_dim))  # linear layer to transform encoded image
+        self.encoder_att = weight_norm(nn.Linear(encoder_dim, attention_dim))  # linear layer to transform encoded image
         self.decoder_att = weight_norm(nn.Linear(decoder_dim, attention_dim))  # linear layer to transform decoder's output
         self.full_att = weight_norm(nn.Linear(attention_dim, 1))  # linear layer to calculate values to be softmax-ed
         self.relu = nn.ReLU()
@@ -212,8 +212,10 @@ class DecoderWithAttention(nn.Module):
         # 获取像素数14*14， 和维度2048
         batch_size = encoder_out.size(0)
         vocab_size = self.vocab_size
-
+        encoder_dim = encoder_out.size(-1)
         # Flatten image  encoder_out：[batch_size, 14, 14, 2048]
+        encoder_out = encoder_out.view(batch_size, -1, encoder_dim)
+        num_pixels = encoder_out.size(1)
         encoder_out_mean = encoder_out.mean(1).to(device)
 
         # Sort input data by decreasing lengths; why? apparent below

@@ -36,11 +36,11 @@ cudnn.benchmark = True
 # Training parameters
 start_epoch = 0
 # number of epochs to train for (if early stopping is not triggered)
-epochs = 30
+epochs = 5
 # keeps track of number of epochs since there's been an improvement in validation BLEU
 epochs_since_improvement = 0
-batch_size = 32
-workers = 0  # for data-loading; right now, only 1 works with h5py
+batch_size = 8
+workers = 1  # for data-loading; right now, only 1 works with h5py
 encoder_lr = 1e-4  # learning rate for encoder if fine-tuning
 decoder_lr = 4e-4  # learning rate for decoder
 grad_clip = 5.  # clip gradients at an absolute value of
@@ -110,11 +110,11 @@ def main():
     train_loader = torch.utils.data.DataLoader(
         CaptionDataset(data_folder, data_name, 'TRAIN',
                        transform=transforms.Compose([normalize])),
-        batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True)
+        batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True, drop_last=True)
     val_loader = torch.utils.data.DataLoader(
         CaptionDataset(data_folder, data_name, 'VAL',
                        transform=transforms.Compose([normalize])),
-        batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True)
+        batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True, drop_last=True)
 
     for epoch in range(start_epoch, epochs):
 
@@ -184,7 +184,7 @@ def train(train_loader, encoder, decoder, criterion_ce, criterion_dis, encoder_o
     # Batches
     for i, (imgs, caps, caplens) in enumerate(train_loader):
         data_time.update(time.time() - start)
-
+        #if i == 200:break
         # Move to GPU, if available
         imgs = imgs.to(device)
         caps = caps.to(device)
@@ -215,12 +215,10 @@ def train(train_loader, encoder, decoder, criterion_ce, criterion_dis, encoder_o
             targets, decode_lengths, batch_first=True)
 
         # Calculate loss , not add doubly stochastic attention regularization
+        #loss += alpha_c * ((1. - alphas.sum(dim=1)) ** 2).mean()
         loss_d = criterion_dis(scores_d, targets_d.long())
         loss_g = criterion_ce(scores, targets)
         loss = loss_g + (10 * loss_d)
-
-        # Add doubly stochastic attention regularization
-        #loss += alpha_c * ((1. - alphas.sum(dim=1)) ** 2).mean()
 
         # Back prop.
         decoder_optimizer.zero_grad()
@@ -228,11 +226,6 @@ def train(train_loader, encoder, decoder, criterion_ce, criterion_dis, encoder_o
             encoder_optimizer.zero_grad()
         loss.backward()
 
-        # Clip gradients
-        # if grad_clip is not None:
-        #     clip_gradient(decoder_optimizer, grad_clip)
-        #     if encoder_optimizer is not None:
-        #         clip_gradient(encoder_optimizer, grad_clip)
         torch.nn.utils.clip_grad_norm_(
             filter(lambda p: p.requires_grad, decoder.parameters()), 0.25)
 
@@ -297,7 +290,7 @@ def validate(val_loader, encoder, decoder, criterion_ce, criterion_dis):
             # Forward prop.
             if encoder is not None:
                 imgs = encoder(imgs)
-            scores, scores_d, caps_sorted, decode_lengths, alphas, sort_ind = decoder(
+            scores, scores_d, caps_sorted, decode_lengths, sort_ind = decoder(
                 imgs, caps, caplens)
 
             scores_d = scores_d.max(1)[0]
