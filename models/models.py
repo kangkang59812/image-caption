@@ -152,7 +152,7 @@ class DecoderWithAttention(nn.Module):
         self.embedding = nn.Embedding(vocab_size, embed_dim)  # embedding layer
         self.dropout = nn.Dropout(p=self.dropout)
         self.decode_step = nn.LSTMCell(
-            embed_dim + encoder_dim + 196, decoder_dim, bias=True)  # decoding LSTMCell
+            embed_dim + encoder_dim, decoder_dim, bias=True)  # decoding LSTMCell
         # linear layer to find initial hidden state of LSTMCell
         self.init_h = nn.Linear(encoder_dim, decoder_dim)
         # linear layer to find initial cell state of LSTMCell
@@ -228,7 +228,7 @@ class DecoderWithAttention(nn.Module):
             1).sort(dim=0, descending=True)
         encoder_out = encoder_out[sort_ind]
 
-        global_encoder = encoder_out.sum(dim=2)
+        #global_encoder = encoder_out.sum(dim=2)
         # [32, 52]
         encoded_captions = encoded_captions[sort_ind]
 
@@ -262,7 +262,7 @@ class DecoderWithAttention(nn.Module):
 
             # embeddings[:batch_size_t, t, :]逐个取出单词
             h, c = self.decode_step(torch.cat([embeddings[:batch_size_t, t, :], attention_weighted_encoding,
-                                               global_encoder[:batch_size_t]], dim=1), (h[:batch_size_t], c[:batch_size_t]))  # (batch_size_t, decoder_dim)
+                                               ], dim=1), (h[:batch_size_t], c[:batch_size_t]))  # (batch_size_t, decoder_dim)
 
             preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
 
