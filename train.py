@@ -19,17 +19,19 @@ from torchsummary import summary
 import os
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 # Data parameters
-data_folder = '../../datasets/coco2014/'  # folder with data files saved by create_input_files.py
+# folder with data files saved by create_input_files.py
+data_folder = '../../datasets/coco2014/'
 data_name = 'coco_5_cap_per_img_5_min_word_freq'  # base name shared by data files
 
 # Model parameters
-emb_dim = 512  # dimension of word embeddings
-attention_dim = 512  # dimension of attention linear layers
-decoder_dim = 512  # dimension of decoder RNN
+emb_dim = 1024  # dimension of word embeddings
+attention_dim = 1024  # dimension of attention linear layers
+decoder_dim = 1024  # dimension of decoder RNN
 dropout = 0.5
 device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # sets device for model and PyTorch tensors
-cudnn.benchmark = True  # set to true only if inputs to model are fixed size; otherwise lot of computational overhead
+# set to true only if inputs to model are fixed size; otherwise lot of computational overhead
+cudnn.benchmark = True
 
 # Training parameters
 start_epoch = 0
@@ -44,8 +46,8 @@ alpha_c = 1.  # regularization parameter for 'doubly stochastic attention', as i
 best_bleu4 = 0.  # BLEU-4 score right now
 print_freq = 100  # print training/validation stats every __ batches
 fine_tune_encoder = False  # fine-tune encoder?
-# checkpoint = './checkpoint_coco_5_cap_per_img_5_min_word_freq.pth.tar'  # path to checkpoint, None if none
-checkpoint = None
+checkpoint = './checkpoint_coco_5_cap_per_img_5_min_word_freq.pth.tar'  # path to checkpoint, None if none
+#checkpoint = None
 
 
 def main():
@@ -64,8 +66,8 @@ def main():
                                        decoder_dim=decoder_dim,
                                        vocab_size=len(word_map),
                                        dropout=dropout)
-        decoder_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, decoder.parameters()),
-                                             lr=decoder_lr)
+        decoder_optimizer = torch.optim.Adamax(params=filter(
+            lambda p: p.requires_grad, decoder.parameters()))
         encoder = Encoder()
         encoder.fine_tune(fine_tune_encoder)
         encoder_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, encoder.parameters()),
@@ -97,17 +99,20 @@ def main():
     # summary(encoder,(3,256,256))
 
     # Loss function
-    criterion = nn.CrossEntropyLoss().to(device)
+    criterion_ce = nn.CrossEntropyLoss().to(device)
+    criterion_dis = nn.MultiLabelMarginLoss().to(device)
 
     # Custom dataloaders
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
     train_loader = torch.utils.data.DataLoader(
-        CaptionDataset(data_folder, data_name, 'TRAIN', transform=transforms.Compose([normalize])),
-        batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=False)
+        CaptionDataset(data_folder, data_name, 'TRAIN',
+                       transform=transforms.Compose([normalize])),
+        batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True, drop_last=True)
     val_loader = torch.utils.data.DataLoader(
-        CaptionDataset(data_folder, data_name, 'VAL', transform=transforms.Compose([normalize])),
-        batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=False)
+        CaptionDataset(data_folder, data_name, 'VAL',
+                       transform=transforms.Compose([normalize])),
+        batch_size=batch_size, shuffle=True, num_workers=workers, pin_memory=True, drop_last=True)
 
     for epoch in range(start_epoch, epochs):
 
@@ -123,7 +128,8 @@ def main():
         train(train_loader=train_loader,
               encoder=encoder,
               decoder=decoder,
-              criterion=criterion,
+              criterion_ce=criterion_ce,
+              criterion_dis=criterion_dis,
               encoder_optimizer=encoder_optimizer,
               decoder_optimizer=decoder_optimizer,
               epoch=epoch)
@@ -132,14 +138,16 @@ def main():
         recent_bleu4 = validate(val_loader=val_loader,
                                 encoder=encoder,
                                 decoder=decoder,
-                                criterion=criterion)
+                                criterion_ce=criterion_ce,
+                                criterion_dis=criterion_dis)
 
         # Check if there was an improvement
         is_best = recent_bleu4 > best_bleu4
         best_bleu4 = max(recent_bleu4, best_bleu4)
         if not is_best:
             epochs_since_improvement += 1
-            print("\nEpochs since last improvement: %d\n" % (epochs_since_improvement,))
+            print("\nEpochs since last improvement: %d\n" %
+                  (epochs_since_improvement,))
         else:
             epochs_since_improvement = 0
 
@@ -148,7 +156,7 @@ def main():
                         decoder_optimizer, recent_bleu4, is_best)
 
 
-def train(train_loader, encoder, decoder, criterion, encoder_optimizer, decoder_optimizer, epoch):
+def train(train_loader, encoder, decoder, criterion_ce, criterion_dis, encoder_optimizer, decoder_optimizer, epoch):
     """
     Performs one epoch's training.
 
@@ -174,7 +182,7 @@ def train(train_loader, encoder, decoder, criterion, encoder_optimizer, decoder_
     # Batches
     for i, (imgs, caps, caplens) in enumerate(train_loader):
         data_time.update(time.time() - start)
-
+        #if i == 200:break
         # Move to GPU, if available
         imgs = imgs.to(device)
         caps = caps.to(device)
@@ -182,22 +190,33 @@ def train(train_loader, encoder, decoder, criterion, encoder_optimizer, decoder_
 
         # Forward prop.
         imgs = encoder(imgs)
-        scores, caps_sorted, decode_lengths, alphas, sort_ind = decoder(imgs, caps, caplens)
+        scores, scores_d, caps_sorted, decode_lengths, sort_ind = decoder(
+            imgs, caps, caplens)
+
+        # Max-pooling across predicted words across time steps for discriminative supervision
+        scores_d = scores_d.max(1)[0]
 
         # Since we decoded starting with <start>, the targets are all words after <start>, up to <end>
         targets = caps_sorted[:, 1:]
+        targets_d = torch.zeros(scores_d.size(0), scores_d.size(1)).to(device)
+        targets_d.fill_(-1)
+
+        for length in decode_lengths:
+            targets_d[:, :length-1] = targets[:, :length-1]
 
         # Remove timesteps that we didn't decode at, or are pads
         # pack_padded_sequence is an easy trick to do this
         # torch在计算时会自动除去pad，这样不带pad计算不影响精度
-        scores, _ = pack_padded_sequence(scores, decode_lengths, batch_first=True)
-        targets, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True)
+        scores, _ = pack_padded_sequence(
+            scores, decode_lengths, batch_first=True)
+        targets, _ = pack_padded_sequence(
+            targets, decode_lengths, batch_first=True)
 
-        # Calculate loss
-        loss = criterion(scores, targets)
-
-        # Add doubly stochastic attention regularization
-        loss += alpha_c * ((1. - alphas.sum(dim=1)) ** 2).mean()
+        # Calculate loss , not add doubly stochastic attention regularization
+        #loss += alpha_c * ((1. - alphas.sum(dim=1)) ** 2).mean()
+        loss_d = criterion_dis(scores_d, targets_d.long())
+        loss_g = criterion_ce(scores, targets)
+        loss = loss_g + (10 * loss_d)
 
         # Back prop.
         decoder_optimizer.zero_grad()
@@ -205,11 +224,8 @@ def train(train_loader, encoder, decoder, criterion, encoder_optimizer, decoder_
             encoder_optimizer.zero_grad()
         loss.backward()
 
-        # Clip gradients
-        if grad_clip is not None:
-            clip_gradient(decoder_optimizer, grad_clip)
-            if encoder_optimizer is not None:
-                clip_gradient(encoder_optimizer, grad_clip)
+        torch.nn.utils.clip_grad_norm_(
+            filter(lambda p: p.requires_grad, decoder.parameters()), 0.25)
 
         # Update weights
         decoder_optimizer.step()
@@ -236,7 +252,7 @@ def train(train_loader, encoder, decoder, criterion, encoder_optimizer, decoder_
                                                                           top5=top5accs))
 
 
-def validate(val_loader, encoder, decoder, criterion):
+def validate(val_loader, encoder, decoder, criterion_ce, criterion_dis):
     """
     Performs one epoch's validation.
 
@@ -272,22 +288,35 @@ def validate(val_loader, encoder, decoder, criterion):
             # Forward prop.
             if encoder is not None:
                 imgs = encoder(imgs)
-            scores, caps_sorted, decode_lengths, alphas, sort_ind = decoder(imgs, caps, caplens)
+            scores, scores_d, caps_sorted, decode_lengths, sort_ind = decoder(
+                imgs, caps, caplens)
+
+            scores_d = scores_d.max(1)[0]
 
             # Since we decoded starting with <start>, the targets are all words after <start>, up to <end>
             targets = caps_sorted[:, 1:]
+            targets_d = torch.zeros(scores_d.size(
+                0), scores_d.size(1)).to(device)
+            targets_d.fill_(-1)
+
+            for length in decode_lengths:
+                targets_d[:, :length-1] = targets[:, :length-1]
 
             # Remove timesteps that we didn't decode at, or are pads
             # pack_padded_sequence is an easy trick to do this
             scores_copy = scores.clone()
-            scores, _ = pack_padded_sequence(scores, decode_lengths, batch_first=True)
-            targets, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True)
+            scores, _ = pack_padded_sequence(
+                scores, decode_lengths, batch_first=True)
+            targets, _ = pack_padded_sequence(
+                targets, decode_lengths, batch_first=True)
 
-            # Calculate loss
-            loss = criterion(scores, targets)
+            # Calculate loss, not regularization
+            loss_d = criterion_dis(scores_d, targets_d.long())
+            loss_g = criterion_ce(scores, targets)
+            loss = loss_g + (10 * loss_d)
 
             # Add doubly stochastic attention regularization
-            loss += alpha_c * ((1. - alphas.sum(dim=1)) ** 2).mean()
+            # loss += alpha_c * ((1. - alphas.sum(dim=1)) ** 2).mean()
 
             # Keep track of metrics
             losses.update(loss.item(), sum(decode_lengths))
@@ -310,7 +339,8 @@ def validate(val_loader, encoder, decoder, criterion):
             # references = [[ref1a, ref1b, ref1c], [ref2a, ref2b], ...], hypotheses = [hyp1, hyp2, ...]
 
             # References
-            allcaps = allcaps[sort_ind]  # because images were sorted in the decoder
+            # because images were sorted in the decoder
+            allcaps = allcaps[sort_ind]
             for j in range(allcaps.shape[0]):
                 img_caps = allcaps[j].tolist()
                 img_captions = list(
