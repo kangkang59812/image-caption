@@ -174,15 +174,41 @@ class Decoder(nn.Module):
 
     def forward(self, attrs, encoded_captions, caption_lengths):
         """
-       Forward propagation.
+        Forward propagation.
 
        :param attrs: attributes, a tensor of dimension (batch_size, attrs_dim)
        :param encoded_captions: encoded captions, a tensor of dimension (batch_size, max_caption_length)
        :param caption_lengths: caption lengths, a tensor of dimension (batch_size, 1)
        :return: scores for vocabulary, sorted encoded captions, decode lengths, weights, sort indices
        """
+        x0 = self.init_x0(attrs)
+        vocab_size = self.vocab_size
 
+        caption_lengths, sort_ind = caption_lengths.squeeze(
+            1).sort(dim=0, descending=True)
+        attrs = attrs[sort_ind]
 
+        encoded_captions = encoded_captions[sort_ind]
+
+        embeddings = self.embedding(encoded_captions)
+
+        h, c = self.init_hidden_state(attrs)
+
+        decode_lengths = (caption_lengths - 1).tolist()
+
+        # Create tensors to hold word predicion scores
+        predictions = torch.zeros(batch_size, max(
+            decode_lengths), vocab_size).to(device)
+
+        h, c = self.decode_step(x0, (h, c))  # (batch_size_t, decoder_dim)
+        for t in range(max(decode_lengths)):
+            batch_size_t = sum([l > t for l in decode_lengths])
+            h, c = self.decode_step(embeddings[:batch_size_t, t, :], (h[:batch_size_t], c[:batch_size_t]))
+
+            preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
+
+            predictions[:batch_size_t, t, :] = preds
+            
 if __name__ == "__main__":
     #model = MIML()
 
