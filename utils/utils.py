@@ -13,6 +13,10 @@ from scipy.misc import imread, imresize
 from tqdm import tqdm
 from collections import Counter
 from random import seed, choice, sample
+import matplotlib.pyplot as plt
+import cv2
+from matplotlib import cm
+import os.path as osp
 
 
 def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_image, min_word_freq, output_folder,
@@ -29,7 +33,7 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
     :param max_len: don't sample captions longer than this length
     """
 
-    assert dataset in {'coco2014', 'flickr8k', 'flickr30k','coco2017'}
+    assert dataset in {'coco2014', 'flickr8k', 'flickr30k', 'coco2017'}
     # Read Karpathy JSON
     with open(karpathy_json_path, 'r') as j:
         data = json.load(j)
@@ -55,7 +59,7 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
             continue
 
         path = os.path.join(image_folder, img['filepath'], img['filename']) if 'coco' in dataset else os.path.join(
-        image_folder, img['filename'])
+            image_folder, img['filename'])
 
         if img['split'] in {'train', 'restval'}:
             train_image_paths.append(path)
@@ -81,7 +85,9 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
     word_map['<pad>'] = 0
 
     # Create a base/root name for all output files
-    base_filename = dataset + '_' + str(captions_per_image) + '_cap_per_img_' + str(min_word_freq) + '_min_word_freq'
+    base_filename = dataset + '_' + \
+        str(captions_per_image) + '_cap_per_img_' + \
+        str(min_word_freq) + '_min_word_freq'
 
     # Save word map to a JSON
     with open(os.path.join(output_folder, 'WORDMAP_' + base_filename + '.json'), 'w') as j:
@@ -98,7 +104,8 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
             h.attrs['captions_per_image'] = captions_per_image
 
             # Create dataset inside HDF5 file to store images
-            images = h.create_dataset('images', (len(impaths), 3, 256, 256), dtype='uint8')
+            images = h.create_dataset(
+                'images', (len(impaths), 3, 256, 256), dtype='uint8')
 
             print("\nReading %s images and captions, storing to file...\n" % split)
 
@@ -109,7 +116,8 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
 
                 # Sample captions 随机重复，补足5个;多了随机挑5个
                 if len(imcaps[i]) < captions_per_image:
-                    captions = imcaps[i] + [choice(imcaps[i]) for _ in range(captions_per_image - len(imcaps[i]))]
+                    captions = imcaps[i] + [choice(imcaps[i])
+                                            for _ in range(captions_per_image - len(imcaps[i]))]
                 else:
                     captions = sample(imcaps[i], k=captions_per_image)
 
@@ -142,7 +150,8 @@ def create_input_files(dataset, karpathy_json_path, image_folder, captions_per_i
                     caplens.append(c_len)
 
             # Sanity check
-            assert images.shape[0] * captions_per_image == len(enc_captions) == len(caplens)
+            assert images.shape[0] * \
+                captions_per_image == len(enc_captions) == len(caplens)
 
             # Save encoded captions and their lengths to JSON files
             with open(os.path.join(output_folder, split + '_CAPTIONS_' + base_filename + '.json'), 'w') as j:
@@ -187,7 +196,8 @@ def load_embeddings(emb_file, word_map):
         line = line.split(' ')
 
         emb_word = line[0]
-        embedding = list(map(lambda t: float(t), filter(lambda n: n and not n.isspace(), line[1:])))
+        embedding = list(map(lambda t: float(t), filter(
+            lambda n: n and not n.isspace(), line[1:])))
 
         # Ignore word if not in train_vocab
         if emb_word not in vocab:
@@ -291,4 +301,53 @@ def accuracy(scores, targets, k):
     correct_total = correct.view(-1).float().sum()  # 0D tensor
     return correct_total.item() * (100.0 / batch_size)
 
-#def neigh
+
+def plot_instance_attention(im, instance_points, instance_labels, save_path=None):
+    """
+    Arguments:
+        im (ndarray): shape = (3, im_width, im_height)
+            the image array
+        instance_points: List of (x, y) pairs
+            the instance's center points
+        instance_labels: List of str
+            the label name of each instance
+    """
+    fig, (ax, ax2) = plt.subplots(1, 2)
+    ax.imshow(im)
+    ax2.imshow(im)
+    for i, (x_center, y_center) in enumerate(instance_points):
+        label = instance_labels[i]
+        center = plt.Circle((x_center, y_center), 10, color="r", alpha=0.5)
+        ax.add_artist(center)
+        ax.text(x_center, y_center, str(label), fontsize=18,
+                bbox=dict(facecolor="blue", alpha=0.7), color="white")
+    if save_path:
+        if not osp.exists(osp.dirname(save_path)):
+            os.makedirs(osp.dirname(save_path))
+        fig.savefig(save_path)
+    else:
+        plt.show()
+
+
+def plot_instance_probs_heatmap(instance_probs, save_path=None):
+    """
+    Arguments:
+        instance_probs (ndarray): shape = (n_instances, n_labels)
+            the probability distribution of each instance
+    """
+    n_instances, n_labels = instance_probs.shape
+    fig, ax = plt.subplots()
+    ax.set_title("Instance-Label Scoring Layer Visualized")
+
+    cax = ax.imshow(instance_probs, vmin=0, vmax=1, cmap=cm.hot,
+                    aspect=float(n_labels) / n_instances)
+    cbar_ticks = list(np.linspace(0, 1, 11))
+    cbar = fig.colorbar(cax, ticks=cbar_ticks)
+    cbar.ax.set_yticklabels(map(str, cbar_ticks))
+
+    if save_path:
+        if not osp.exists(osp.dirname(save_path)):
+            os.makedirs(osp.dirname(save_path))
+        fig.savefig(save_path)
+    else:
+        plt.show()
