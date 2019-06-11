@@ -3,7 +3,7 @@ import torch.nn as nn
 import torchvision
 from torchsummary import summary
 from collections import OrderedDict
-device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 
 class MIML(nn.Module):
@@ -107,7 +107,7 @@ class Decoder(nn.Module):
     MIML's Decoder.
     """
 
-    def __init__(self, attrs_dim, embed_dim, decoder_dim, attrs_size=1024, vocab_size，dropout=0.5):
+    def __init__(self, attrs_dim, embed_dim, decoder_dim, attrs_size, vocab_size, dropout=0.5):
         '''
         :param attrs_dim: size of MIML's output: 1024
         :param embed_dim: embedding size
@@ -181,6 +181,7 @@ class Decoder(nn.Module):
        :param caption_lengths: caption lengths, a tensor of dimension (batch_size, 1)
        :return: scores for vocabulary, sorted encoded captions, decode lengths, weights, sort indices
        """
+        batch_size = attrs.shape[0]
         x0 = self.init_x0(attrs)
         vocab_size = self.vocab_size
 
@@ -208,10 +209,16 @@ class Decoder(nn.Module):
             preds = self.fc(self.dropout(h))  # (batch_size_t, vocab_size)
 
             predictions[:batch_size_t, t, :] = preds
+
+        return predictions, encoded_captions, decode_lengths, sort_ind
             
 if __name__ == "__main__":
-    #model = MIML()
-
+    model = MIML()
+    model = model.cuda()
+    model = nn.DataParallel(model, device_ids=[0, 1])
+    checkpoint = torch.load('/home/lkk/code/caption_v1/checkpoint/MIML.pth.tar')
+    model.load_state_dict(checkpoint['model'])
+    print('')
     # out = model(torch.randn(8, 3, 224, 224))
     # print(out.shape)
     # summary(model.cuda(), (3, 224, 224), 8)
