@@ -20,7 +20,7 @@ import os
 from collections import OrderedDict
 from tensorboardX import SummaryWriter
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 # Data parameters
 # folder with data files saved by create_input_files.py
 data_folder = '../../datasets/coco2014/'
@@ -32,7 +32,7 @@ attrs_dim = 1024  # dimension of attention linear layers
 decoder_dim = 512  # dimension of decoder RNN
 attrs_size = 1024
 dropout = 0.5
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # sets device for model and PyTorch tensors
 # set to true only if inputs to model are fixed size; otherwise lot of computational overhead
 cudnn.benchmark = True
@@ -44,7 +44,7 @@ epochs = 20
 # keeps track of number of epochs since there's been an improvement in validation BLEU
 epochs_since_improvement = 0
 batch_size = 32
-workers = 1  # for data-loading; right now, only 1 works with h5py
+workers = 0  # for data-loading; right now, only 1 works with h5py
 # encoder_lr = 1e-4  # learning rate for encoder if fine-tuning
 decoder_lr = 4e-4  # learning rate for decoder
 grad_clip = 5.  # clip gradients at an absolute value of
@@ -68,8 +68,9 @@ def main():
         word_map = json.load(j)
 
     miml = MIML()
-    miml = miml.cuda()
-    pretrained_net_dict = torch.load(checkpoint_miml)['model']
+    miml = miml.to(device)
+    pretrained_net_dict = torch.load(
+        checkpoint_miml, map_location=device)['model']
     new_state_dict = OrderedDict()
     for k, v in pretrained_net_dict.items():
         name = k[7:]  # remove `module.`
