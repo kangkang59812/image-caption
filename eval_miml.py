@@ -9,6 +9,11 @@ import torch.nn.functional as F
 from tqdm import tqdm
 from models.miml import MIML, Decoder
 import os
+from pycocoevalcap.bleu.bleu import Bleu
+from pycocoevalcap.cider.cider import Cider
+from pycocoevalcap.meteor.meteor import Meteor
+from pycocoevalcap.rouge.rouge import Rouge
+from pycocoevalcap.spice.spice import Spice
 # Parameters
 # folder with data files saved by create_input_files.py
 data_folder = '../../datasets/coco2014/'
@@ -18,10 +23,10 @@ checkpoint = './x0/BEST_checkpoint_withmimlcoco_5_cap_per_img_5_min_word_freq.pt
 # word map, ensure it's the same the data was encoded with and the model was trained with
 word_map_file = '../../datasets/coco2014/WORDMAP_coco_5_cap_per_img_5_min_word_freq.json'
 # sets device for model and PyTorch tensors
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # set to true only if inputs to model are fixed size; otherwise lot of computational overhead
 cudnn.benchmark = True
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 emb_dim = 512  # dimension of word embeddings
 attrs_dim = 1024  # dimension of attention linear layers
 decoder_dim = 512  # dimension of decoder RNN
@@ -71,11 +76,11 @@ def evaluate(beam_size):
     # Lists to store references (true captions), and hypothesis (prediction) for each image
     # If for n images, we have n hypotheses, and references a, b, c... for each image, we need -
     # references = [[ref1a, ref1b, ref1c], [ref2a, ref2b], ...], hypotheses = [hyp1, hyp2, ...]
-    references = list()
-    hypotheses = list()
+    references = dict()
+    hypotheses = dict()
 
     # For each image
-    for i, (image, caps, caplens, allcaps) in enumerate(
+    for j, (image, caps, caplens, allcaps) in enumerate(
             tqdm(loader, desc="EVALUATING AT BEAM SIZE " + str(beam_size))):
 
         k = beam_size
@@ -123,11 +128,12 @@ def evaluate(beam_size):
                     k, 0, True, True)  # (s)
             else:
                 # Unroll and find top scores, and their unrolled indices
-                # (s)
+                # (s) 所有分数中最大的k个
                 top_k_scores, top_k_words = scores.view(
                     -1).topk(k, 0, True, True)
 
             # Convert unrolled indices to actual indices of scores
+            # 上面展开了,prev_word_inds得到哪些句子是概率最大的
             prev_word_inds = top_k_words / vocab_size  # (s)
             next_word_inds = top_k_words % vocab_size  # (s)
 
@@ -166,42 +172,55 @@ def evaluate(beam_size):
         seq = complete_seqs[i]
 
         # References
-        img_caps = allcaps[0].tolist()
-        img_captions = list(
-            map(lambda c: [w for w in c if w not in {word_map['<start>'], word_map['<end>'], word_map['<pad>']}],
-                img_caps))  # remove <start> and pads
-        references.append(img_captions)
+        # img_caps = allcaps[0].tolist()
+        # img_captions = list(
+        #     map(lambda c: [w for w in c if w not in {word_map['<start>'], word_map['<end>'], word_map['<pad>']}],
+        #         img_caps))  # remove <start> and pads
+        # references.append(img_caps)
 
         # Hypotheses
-        hypotheses.append([w for w in seq if w not in {
-                          word_map['<start>'], word_map['<end>'], word_map['<pad>']}])
-        # for ii in seq:
-        #     print(rev_word_map[ii])
-        # print('************************')
-        # for one in references[i]:
-        #     for ii in one:
-        #         print(rev_word_map[ii])
-        #     print('************************')
-      
+        # hypotheses.append([w for w in seq if w not in {
+        #                   word_map['<start>'], word_map['<end>'], word_map['<pad>']}])
+        # References
+        img_caps = allcaps[0].tolist()
+        img_captions = list(
+            map(lambda c: [rev_word_map[w] for w in c if w not in {word_map['<start>'], word_map['<end>'], word_map['<pad>']}],
+                img_caps))  # remove <start> and pads
+        img_caps = [' '.join(c) for c in img_captions]
+        # print(img_caps)
+        references[str(j)] = img_caps
+
+        # Hypotheses
+        hypothesis = ([rev_word_map[w] for w in seq if w not in {
+            word_map['<start>'], word_map['<end>'], word_map['<pad>']}])
+        hypothesis = [' '.join(hypothesis)]
+        # print(hypothesis)
+        hypotheses[str(j)] = hypothesis
+
         assert len(references) == len(hypotheses)
+        if j == 1000:
+            break
+    m1 = Bleu()
+    m2 = Meteor()
+    m3 = Cider()
+    m4 = Rouge()
+    m5 = Spice()
+    (score1, scores1) = m1.compute_score(references, hypotheses)
+    (score2, scores2) = m2.compute_score(references, hypotheses)
+    (score3, scores3) = m3.compute_score(references, hypotheses)
+    (score4, scores4) = m4.compute_score(references, hypotheses)
+    (score5, scores5) = m5.compute_score(references, hypotheses)
 
-    # Calculate BLEU-1~BLEU4 scores
-    weights = (1.0 / 1.0,)
-    bleu1 = corpus_bleu(references, hypotheses, weights)
-
-    weights = (1.0 / 2.0, 1.0 / 2.0,)
-    bleu2 = corpus_bleu(references, hypotheses, weights)
-
-    weights = (1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0,)
-    bleu3 = corpus_bleu(references, hypotheses, weights)
-
-    bleu4 = corpus_bleu(references, hypotheses)
-
-    return bleu1, bleu2, bleu3, bleu4
+    return score1, score2, score3, score4, score5
 
 
 if __name__ == '__main__':
     beam_size = 3
-
-    print("\nBLEU-1~4 score @ beam size of %d is:" %
-          (beam_size), evaluate(beam_size))
+    score1, score2, score3, score4, score5 = evaluate(beam_size)
+    print("\nBLEU-1~4 score @ beam size of {} is:\n \
+          Bleu : {} \n \
+          Meteor : {} \n \
+          Cider : {} \n \
+          Rouge : {} \n \
+          Spice : {} ".format(
+        beam_size, score1, score2, score3, score4, score5))

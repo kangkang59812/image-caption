@@ -8,4 +8,9 @@ __pycache__
 *.ipynb
 *.json
 *.jpg
-log/
+log*
+*.jar
+*.gz
+*.mdb
+tmp*
+.DS_Store
