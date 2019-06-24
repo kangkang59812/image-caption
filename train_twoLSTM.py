@@ -32,11 +32,12 @@ start_epoch = 0
 epochs = 30
 # keeps track of number of epochs since there's been an improvement in validation BLEU
 epochs_since_improvement = 0
-batch_size = 32
+batch_size = 8
 workers = 0  # for data-loading; right now, only 1 works with h5py
 best_bleu4 = 0.  # BLEU-4 score right now
 print_freq = 1  # print training/validation stats every __ batches
-checkpoint = None  # path to checkpoint, None if none
+# path to checkpoint, None if none
+checkpoint = './BEST_two_lstmcheckpoint_two_lstmcoco_5_cap_per_img_5_min_word_freq.pth.tar'
 fine_tune_encoder = True
 encoder_lr = 1e-4  # learning rate for encoder if fine-tuning
 decoder_lr = 4e-4
@@ -68,17 +69,30 @@ def main():
         encoder.fine_tune(fine_tune_encoder)
         encoder_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, encoder.parameters()),
                                              lr=encoder_lr) if fine_tune_encoder else None
-    # else:
-    #     checkpoint = torch.load(checkpoint)
-    #     start_epoch = checkpoint['epoch'] + 1
-    #     epochs_since_improvement = checkpoint['epochs_since_improvement']
-    #     best_bleu4 = checkpoint['bleu-4']
-    #     decoder = checkpoint['decoder']
-    #     decoder_optimizer = checkpoint['decoder_optimizer']
-
-    # Move to GPU, if available
-    encoder = encoder.to(device)
-    decoder = decoder.to(device)
+        encoder = encoder.to(device)
+        decoder = decoder.to(device)
+    else:
+        checkpoint = torch.load(checkpoint, map_location=device)
+        start_epoch = checkpoint['epoch'] + 1
+        epochs_since_improvement = checkpoint['epochs_since_improvement']
+        best_bleu4 = checkpoint['bleu-4']
+        decoder = DecoderWithAttention(attention_dim=attention_dim,
+                                       embed_dim=emb_dim,
+                                       decoder_dim=decoder_dim,
+                                       vocab_size=len(word_map),
+                                       dropout=dropout)
+        decoder = decoder.to(device)
+        decoder.load_state_dict(checkpoint['decoder'])
+        decoder_optimizer = torch.optim.Adam(params=filter(
+            lambda p: p.requires_grad, decoder.parameters()), lr=decoder_lr)
+        decoder_optimizer.load_state_dict(checkpoint['decoder_optimizer'])
+        encoder = Encoder()
+        encoder = encoder.to(device)
+        encoder.fine_tune(fine_tune_encoder)
+        encoder.load_state_dict(checkpoint['encoder'])
+        encoder_optimizer = torch.optim.Adam(params=filter(lambda p: p.requires_grad, encoder.parameters()),
+                                             lr=encoder_lr) if fine_tune_encoder else None
+        encoder_optimizer.load_state_dict(checkpoint['encoder_optimizer'])
 
     # Loss functions
     criterion_ce = nn.CrossEntropyLoss().to(device)
