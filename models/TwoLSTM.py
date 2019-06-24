@@ -35,15 +35,17 @@ class Attention(nn.Module):
         :param decoder_hidden: previous decoder output, a tensor of dimension (batch_size, decoder_dim)
         :return: attention weighted encoding, weights
         """
+        batch_size = image_features.shape[0]
+        dim = image_features.shape[-1]
         att1 = self.features_att(
-            image_features)  # (batch_size, 36, attention_dim)
+            image_features.permute(0, 3, 1, 2).reshape(batch_size, dim, -1))  # (batch_size, 36, attention_dim)
         att2 = self.decoder_att(decoder_hidden)  # (batch_size, attention_dim)
         att = self.full_att(self.dropout(
             self.relu(att1 + att2.unsqueeze(1)))).squeeze(2)  # (batch_size, 36)
         alpha = self.softmax(att)  # (batch_size, 36)
         # (batch_size, features_dim)
         attention_weighted_encoding = (
-            image_features * alpha.unsqueeze(2)).sum(dim=1)
+            (image_features.permute(0, 3, 1, 2).reshape(batch_size, dim, -1)) * alpha.unsqueeze(2)).sum(dim=1)
 
         return attention_weighted_encoding
 
@@ -117,7 +119,8 @@ class DecoderWithAttention(nn.Module):
         vocab_size = self.vocab_size
 
         # Flatten image
-        image_features_mean = image_features.reshape(batch_size,-1,self.features_dim).mean(2)  # (batch_size, num_pixels, encoder_dim)
+        image_features_mean = image_features.reshape(
+            batch_size, -1, 2048).mean(2)  # (batch_size, num_pixels, encoder_dim)
 
         # Sort input data by decreasing lengths; why? apparent below
         caption_lengths, sort_ind = caption_lengths.squeeze(
