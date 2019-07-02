@@ -109,9 +109,9 @@ class Decoder(nn.Module):
 
         #
         self.init_weights()  # initialize some layers with the uniform distribution
-        self.pre1 = nn.Linear(vocab_size, attrs_dim)
-        self.pre2 = nn.Linear(vocab_size, attrs_dim)
-        self.pre = nn.Linear(attrs_dim, vocab_size)
+        # self.pre1 = nn.Linear(vocab_size, attrs_dim)
+        # self.pre2 = nn.Linear(vocab_size, attrs_dim)
+        self.pre = nn.Linear(vocab_size, vocab_size)
 
     def init_weights(self):
         """
@@ -206,9 +206,10 @@ class Decoder(nn.Module):
 
             preds1 = self.fc1(self.dropout1(h1))  # (batch_size_t, vocab_size)
             preds2 = self.fc2(self.dropout1(h2))
-            preds = self.pre(self.pre1(preds1) + self.pre2(preds2))
+            # preds = self.pre(self.pre1(preds1) + self.pre2(preds2))
+            preds = self.pre(preds1 + preds2)
             predictions[:batch_size_t, t, :] = preds
-
+            
         return predictions, encoded_captions, decode_lengths, alphas, sort_ind
 
 
