@@ -278,8 +278,9 @@ def saveall_checkpoint(data_name, epoch, epochs_since_improvement, miml, encoder
     if is_best:
         torch.save(state, 'BEST_' + filename)
 
+
 def saveatwoLSTM_checkpoint(data_name, epoch, epochs_since_improvement, encoder, decoder, encoder_optimizer, decoder_optimizer,
-                       bleu4, is_best):
+                            bleu4, is_best):
     """
     Saves model checkpoint.
 
@@ -305,6 +306,20 @@ def saveatwoLSTM_checkpoint(data_name, epoch, epochs_since_improvement, encoder,
     # If this checkpoint is the best so far, store a copy so it doesn't get overwritten by a worse checkpoint
     if is_best:
         torch.save(state, 'BEST_two_lstm' + filename)
+
+def save_fcheckpoint(data_name, epoch, epochs_since_improvement, decoder, decoder_optimizer,
+                    bleu4, is_best):
+    
+    state = {'epoch': epoch,
+             'epochs_since_improvement': epochs_since_improvement,
+             'bleu-4': bleu4,
+             'decoder': decoder.state_dict(),
+             'decoder_optimizer': decoder_optimizer.state_dict()}
+    filename = 'checkpoint_f_' + data_name + '.pth.tar'
+    torch.save(state, filename)
+    # If this checkpoint is the best so far, store a copy so it doesn't get overwritten by a worse checkpoint
+    if is_best:
+        torch.save(state, 'BEST_' + filename)
 
 class AverageMeter(object):
     """
