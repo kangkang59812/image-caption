@@ -40,7 +40,7 @@ start_epoch = 0
 epochs = 50
 # keeps track of number of epochs since there's been an improvement in validation BLEU
 epochs_since_improvement = 0
-batch_size = 16
+batch_size = 8
 workers = 0  # for data-loading; right now, only 1 works with h5py
 encoder_lr = 1e-4  # learning rate for encoder if fine-tuning
 decoder_lr = 4e-4  # learning rate for decoder
@@ -50,7 +50,7 @@ best_bleu4 = 0.  # BLEU-4 score right now
 print_freq = 1  # print training/validation stats every __ batches
 fine_tune_encoder = True  # fine-tune encoder?
 # checkpoint = './checkpoint_coco_5_cap_per_img_5_min_word_freq.pth.tar'  # path to checkpoint, None if none
-checkpoint = None
+checkpoint = './BEST_checkpoint_all_6_18coco_5_cap_per_img_5_min_word_freq.pth.tar'
 checkpoint_miml = '/home/lkk/code/caption_v1/checkpoint/MIML.pth.tar'
 
 
@@ -63,13 +63,16 @@ def main():
     miml = MIML()
     miml = miml.to(device)
     pretrained_net_dict = torch.load(
-        checkpoint_miml, map_location=device)['model']
+        checkpoint_miml, map_location=lambda storage, loc: storage)['model']
     new_state_dict = OrderedDict()
     for k, v in pretrained_net_dict.items():
         name = k[7:]  # remove `module.`
         new_state_dict[name] = v
         # load params
     miml.load_state_dict(new_state_dict)
+    del pretrained_net_dict  # dereference seems crucial
+    del new_state_dict
+    torch.cuda.empty_cache()
 
     encoder = Encoder()
     encoder.fine_tune(fine_tune_encoder)
@@ -87,6 +90,19 @@ def main():
 
     decoder = decoder.to(device)
     encoder = encoder.to(device)
+
+    # if checkpoint:
+    #     checkpoint = torch.load(checkpoint)
+    #     miml.load_state_dict(checkpoint['miml'])
+    #     encoder.load_state_dict(checkpoint['encoder'])
+    #     decoder.load_state_dict(checkpoint['decoder'])
+    #     encoder_optimizer.load_state_dict(checkpoint['encoder_optimizer'])
+    #     decoder_optimizer.load_state_dict(checkpoint['decoder_optimizer'])
+    #     best_bleu4 = checkpoint['bleu-4']
+    #     start_epoch = checkpoint['epoch']
+    #     epochs_since_improvement = checkpoint['epochs_since_improvement']
+    #     del checkpoint  # dereference seems crucial
+    #     torch.cuda.empty_cache()
 
     criterion = nn.CrossEntropyLoss().to(device)
 
@@ -184,10 +200,10 @@ def train(train_loader, miml, encoder, decoder, criterion, encoder_optimizer, de
         caplens = caplens.to(device)
 
         # Forward prop.
-        attrs = miml(imgs)
-        imgs = encoder(imgs)
+        # attrs = miml(imgs)
+        # imgs = encoder(imgs)
         scores, caps_sorted, decode_lengths, alphas, sort_ind = decoder(
-            attrs, imgs, caps, caplens)
+            miml(imgs), encoder(imgs), caps, caplens)
 
         # Since we decoded starting with <start>, the targets are all words after <start>, up to <end>
         targets = caps_sorted[:, 1:]

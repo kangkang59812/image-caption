@@ -111,6 +111,7 @@ class Decoder(nn.Module):
         self.init_weights()  # initialize some layers with the uniform distribution
         # self.pre1 = nn.Linear(vocab_size, attrs_dim)
         # self.pre2 = nn.Linear(vocab_size, attrs_dim)
+
         self.pre = nn.Linear(vocab_size, vocab_size)
 
     def init_weights(self):
@@ -203,13 +204,18 @@ class Decoder(nn.Module):
             attention_weighted_encoding = gate * attention_weighted_encoding
             h2, c2 = self.decode_step2(torch.cat([embeddings[:batch_size_t, t, :], attention_weighted_encoding,
                                                   ], dim=1), (h2[:batch_size_t], c2[:batch_size_t]))  # (batch_size_t, decoder_dim)
+            
+            # (batch_size_t, vocab_size)
+            preds1 = nn.functional.normalize(
+                self.fc1(self.dropout1(h1)), p=2, dim=1)
+            preds2 = nn.functional.normalize(
+                self.fc2(self.dropout2(h2)), p=2, dim=1)
 
-            preds1 = self.fc1(self.dropout1(h1))  # (batch_size_t, vocab_size)
-            preds2 = self.fc2(self.dropout1(h2))
             # preds = self.pre(self.pre1(preds1) + self.pre2(preds2))
+
             preds = self.pre(preds1 + preds2)
             predictions[:batch_size_t, t, :] = preds
-            
+
         return predictions, encoded_captions, decode_lengths, alphas, sort_ind
 
 
