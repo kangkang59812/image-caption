@@ -21,14 +21,14 @@ from pycocoevalcap.spice.spice import Spice
 data_folder = '../../datasets/coco2014/'
 data_name = 'coco_5_cap_per_img_5_min_word_freq'  # base name shared by data files
 # model checkpoint
-checkpoint = './BEST_checkpoint_all_6_18coco_5_cap_per_img_5_min_word_freq.pth.tar'
+checkpoint = './BEST_checkpoint_allcoco_5_cap_per_img_5_min_word_freq.pth.tar'
 # word map, ensure it's the same the data was encoded with and the model was trained with
 word_map_file = '../../datasets/coco2014/WORDMAP_coco_5_cap_per_img_5_min_word_freq.json'
 # sets device for model and PyTorch tensors
-device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # set to true only if inputs to model are fixed size; otherwise lot of computational overhead
 cudnn.benchmark = True
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 emb_dim = 512  # dimension of word embeddings
 attrs_dim = 1024  # dimension of attention linear layers
 decoder_dim = 512  # dimension of decoder RNN
@@ -104,7 +104,7 @@ def evaluate(beam_size):
         encoder_dim = encoder_out.size(3)
         encoder_out = encoder_out.view(1, -1, encoder_dim)
         num_pixels = encoder_out.size(1)
-        encoder_out = encoder_out.expand(k, num_pixels, encoder_dim) 
+        encoder_out = encoder_out.expand(k, num_pixels, encoder_dim)
         x0 = decoder.init_x0(attrs)
 
         # Tensor to store top k previous words at each step; now they're just <start>
@@ -130,16 +130,17 @@ def evaluate(beam_size):
 
             embeddings = decoder.embedding(
                 k_prev_words).squeeze(1)  # (s, embed_dim)
-        
+
             awe, _ = decoder.attention(encoder_out, h2)
             gate = decoder.sigmoid(decoder.f_beta(h2))
             awe = gate * awe
 
-            h1, c1 = decoder.decode_step1(embeddings, (h1, c1)) 
-            h2, c2 = decoder.decode_step2(torch.cat([embeddings, awe], dim=1), (h2, c2))
+            h1, c1 = decoder.decode_step1(embeddings, (h1, c1))
+            h2, c2 = decoder.decode_step2(
+                torch.cat([embeddings, awe], dim=1), (h2, c2))
 
-            pre1 = decoder.fc1(h1)
-            pre2 = decoder.fc2(h2)
+            pre1 = F.normalize(decoder.fc1(h1), p=2, dim=1)
+            pre2 = F.normalize(decoder.fc2(h2), p=2, dim=1)
             scores = decoder.pre(pre1+pre2)
             scores = F.log_softmax(scores, dim=1)
 
