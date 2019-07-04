@@ -218,7 +218,7 @@ def train(train_loader, decoder, criterion, decoder_optimizer, epoch, writer):
         # break
 
 
-def validate(val_loader, decoder, criterion, epoch,writer):
+def validate(val_loader, decoder, criterion, epoch, writer):
     """
     Performs one epoch's validation.
 
